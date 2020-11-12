@@ -1,0 +1,259 @@
+`timescale 1ns / 1ps
+module tb;
+
+wire clk_50M, clk_11M0592, clk_10M;
+
+reg clock_btn = 0;    //BTN5手动时钟按钮开关，带消抖电路，按下时为1
+reg reset_btn = 0;    //BTN6手动复位按钮开关，带消抖电路，按下时为1
+
+reg[3:0]  touch_btn;  //BTN1~BTN4，按钮开关，按下时为1
+reg[31:0] dip_sw;     //32位拨码开关，拨到“ON”时为1
+
+wire[15:0] leds;      //16位LED，输出时1点亮
+wire[7:0]  dpy0;      //数码管低位信号，包括小数点，输出1点亮
+wire[7:0]  dpy1;      //数码管高位信号，包括小数点，输出1点亮
+
+wire txd;  //直连串口发送端
+wire rxd;  //直连串口接收端
+
+wire[31:0] base_ram_data; //BaseRAM数据，低8位与CPLD串口控制器共享
+wire[19:0] base_ram_addr; //BaseRAM地址
+wire[3:0] base_ram_be_n;  //BaseRAM字节使能，低有效。如果不使用字节使能，请保持为0
+wire base_ram_ce_n;       //BaseRAM片选，低有效
+wire base_ram_oe_n;       //BaseRAM读使能，低有效
+wire base_ram_we_n;       //BaseRAM写使能，低有效
+
+wire[31:0] ext_ram_data;  //ExtRAM数据
+wire[19:0] ext_ram_addr;  //ExtRAM地址
+wire[3:0] ext_ram_be_n;   //ExtRAM字节使能，低有效。如果不使用字节使能，请保持为0
+wire ext_ram_ce_n;        //ExtRAM片选，低有效
+wire ext_ram_oe_n;        //ExtRAM读使能，低有效
+wire ext_ram_we_n;        //ExtRAM写使能，低有效
+
+wire [22:0]flash_a;       //Flash地址，a0仅在8bit模式有效，16bit模式无意义
+wire [15:0]flash_d;       //Flash数据
+wire flash_rp_n;          //Flash复位信号，低有效
+wire flash_vpen;          //Flash写保护信号，低电平时不能擦除、烧写
+wire flash_ce_n;          //Flash片选信号，低有效
+wire flash_oe_n;          //Flash读使能信号，低有效
+wire flash_we_n;          //Flash写使能信号，低有效
+wire flash_byte_n;        //Flash 8bit模式选择，低有效。在使用flash的16位模式时请设为1
+
+//Windows需要注意路径分隔符的转义，例如"D:\\foo\\bar.bin"
+ parameter BASE_RAM_INIT_FILE = "D:\\CPU\\官方说明\\nscscc2020\\supervisor2_v2.01\\kernel\\kernel.bin"; 
+// parameter BASE_RAM_INIT_FILE = "D:\\vivado_workspace\\top3\\bin\\d1.bin"; 
+// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips2.bin"; 
+// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips3.bin";
+// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips4.bin"; 
+parameter EXT_RAM_INIT_FILE = "D:\\mars\\d1.bin";
+//parameter BASE_RAM_INIT_FILE = "/tmp/main.bin"; //BaseRAM初始化文件，请修改为实际的绝对路径 
+//parameter EXT_RAM_INIT_FILE = "/tmp/eram.bin";    //ExtRAM初始化文件，请修改为实际的绝对路径
+parameter FLASH_INIT_FILE = "/tmp/kernel.elf";    //Flash初始化文件，请修改为实际的绝对路径
+
+//把thinkpad的串口控制器搬过来，修改为发送特定数据。
+//--
+//两者的txd和rxd恰好反过来
+wire pc_txd;
+wire pc_rxd;
+
+assign rxd = pc_txd;
+assign pc_rxd = txd;
+
+wire [7:0] ext_uart_rx;
+reg  [7:0] ext_uart_buffer, ext_uart_tx;
+wire ext_uart_ready, ext_uart_clear, ext_uart_busy;
+reg ext_uart_start, ext_uart_avai;
+
+localparam CLKFREQUENCY = 10_000000;        
+localparam BAUD = 9600;
+
+async_receiver #(.ClkFrequency(CLKFREQUENCY),.Baud(BAUD)) //接收模块，9600无检验位
+    ext_uart_r(
+        .clk(clk_10M),                   //外部时钟信号
+        .RxD(pc_rxd),                        //外部串行信号输入
+        .RxD_data_ready(ext_uart_ready),     //数据接收到标志
+        .RxD_clear(ext_uart_clear),          //清除接收标志
+        .RxD_data(ext_uart_rx)               //接收到的一字节数据
+    );
+
+assign ext_uart_clear = ext_uart_ready; //收到数据的同时，清除标志，因为数据已取到ext_uart_buffer中
+always @(posedge clk_10M) begin //接收到缓冲区ext_uart_buffer
+    if(ext_uart_ready)begin
+        ext_uart_buffer <= ext_uart_rx;
+        ext_uart_avai <= 1;
+    end else if(!ext_uart_busy && ext_uart_avai)begin 
+        ext_uart_avai <= 0;
+    end
+end
+
+// always @(posedge clk_50M) begin //将缓冲区ext_uart_buffer发送出去
+    // if(!ext_uart_busy && ext_uart_avai)begin 
+        // ext_uart_tx <= ext_uart_buffer + 1;//////
+        // ext_uart_start <= 1;
+    // end else begin 
+        // ext_uart_start <= 0;
+    // end
+// end
+
+async_transmitter #(.ClkFrequency(CLKFREQUENCY),.Baud(BAUD)) //发送模块，9600无检验位
+    ext_uart_t(
+        .clk(clk_10M),              //外部时钟信号
+        .TxD(pc_txd),                   //串行信号输出
+        .TxD_busy(ext_uart_busy),       //发送器忙状态指示
+        .TxD_start(ext_uart_start),     //开始发送信号
+        .TxD_data(ext_uart_tx)          //待发送的数据
+    );
+
+initial begin
+    //手动复位信号
+    reset_btn = 1;
+    #10;
+    reset_btn = 0;
+    // #10000;
+    // ext_uart_tx <= 32'h72;
+    // ext_uart_start <= 1;
+    // #100;
+    // ext_uart_start <= 0;
+end
+
+thinpad_top dut(
+    .clk_50M(clk_50M),
+    .clk_11M0592(clk_11M0592),
+    .clock_btn(clock_btn),
+    .reset_btn(reset_btn),
+    .touch_btn(touch_btn),
+    .dip_sw(dip_sw),
+    .leds(leds),
+    .dpy1(dpy1),
+    .dpy0(dpy0),
+    .txd(txd),
+    .rxd(rxd),
+    .base_ram_data(base_ram_data),
+    .base_ram_addr(base_ram_addr),
+    .base_ram_ce_n(base_ram_ce_n),
+    .base_ram_oe_n(base_ram_oe_n),
+    .base_ram_we_n(base_ram_we_n),
+    .base_ram_be_n(base_ram_be_n),
+    .ext_ram_data(ext_ram_data),
+    .ext_ram_addr(ext_ram_addr),
+    .ext_ram_ce_n(ext_ram_ce_n),
+    .ext_ram_oe_n(ext_ram_oe_n),
+    .ext_ram_we_n(ext_ram_we_n),
+    .ext_ram_be_n(ext_ram_be_n),
+    .flash_d(flash_d),
+    .flash_a(flash_a),
+    .flash_rp_n(flash_rp_n),
+    .flash_vpen(flash_vpen),
+    .flash_oe_n(flash_oe_n),
+    .flash_ce_n(flash_ce_n),
+    .flash_byte_n(flash_byte_n),
+    .flash_we_n(flash_we_n)
+);
+// 时钟源
+clock osc(
+    .clk_11M0592(clk_11M0592),
+    .clk_50M    (clk_50M),
+    .clk_10M    (clk_10M)
+);
+
+// BaseRAM 仿真模型
+sram_model base1(/*autoinst*/
+            .DataIO(base_ram_data[15:0]),
+            .Address(base_ram_addr[19:0]),
+            .OE_n(base_ram_oe_n),
+            .CE_n(base_ram_ce_n),
+            .WE_n(base_ram_we_n),
+            .LB_n(base_ram_be_n[0]),
+            .UB_n(base_ram_be_n[1]));
+sram_model base2(/*autoinst*/
+            .DataIO(base_ram_data[31:16]),
+            .Address(base_ram_addr[19:0]),
+            .OE_n(base_ram_oe_n),
+            .CE_n(base_ram_ce_n),
+            .WE_n(base_ram_we_n),
+            .LB_n(base_ram_be_n[2]),
+            .UB_n(base_ram_be_n[3]));
+// ExtRAM 仿真模型
+sram_model ext1(/*autoinst*/
+            .DataIO(ext_ram_data[15:0]),
+            .Address(ext_ram_addr[19:0]),
+            .OE_n(ext_ram_oe_n),
+            .CE_n(ext_ram_ce_n),
+            .WE_n(ext_ram_we_n),
+            .LB_n(ext_ram_be_n[0]),
+            .UB_n(ext_ram_be_n[1]));
+sram_model ext2(/*autoinst*/
+            .DataIO(ext_ram_data[31:16]),
+            .Address(ext_ram_addr[19:0]),
+            .OE_n(ext_ram_oe_n),
+            .CE_n(ext_ram_ce_n),
+            .WE_n(ext_ram_we_n),
+            .LB_n(ext_ram_be_n[2]),
+            .UB_n(ext_ram_be_n[3]));
+// Flash 仿真模型
+x28fxxxp30 #(.FILENAME_MEM(FLASH_INIT_FILE)) flash(
+    .A(flash_a[1+:22]), 
+    .DQ(flash_d), 
+    .W_N(flash_we_n),    // Write Enable 
+    .G_N(flash_oe_n),    // Output Enable
+    .E_N(flash_ce_n),    // Chip Enable
+    .L_N(1'b0),    // Latch Enable
+    .K(1'b0),      // Clock
+    .WP_N(flash_vpen),   // Write Protect
+    .RP_N(flash_rp_n),   // Reset/Power-Down
+    .VDD('d3300), 
+    .VDDQ('d3300), 
+    .VPP('d1800), 
+    .Info(1'b1));
+
+initial begin 
+    wait(flash_byte_n == 1'b0);
+    $display("8-bit Flash interface is not supported in simulation!");
+    $display("Please tie flash_byte_n to high");
+    $stop;
+end
+
+// 从文件加载 BaseRAM
+initial begin 
+    reg [31:0] tmp_array[0:1048575];
+    integer n_File_ID, n_Init_Size;
+    n_File_ID = $fopen(BASE_RAM_INIT_FILE, "rb");
+    if(!n_File_ID)begin 
+        n_Init_Size = 0;
+        $display("Failed to open BaseRAM init file");
+    end else begin
+        n_Init_Size = $fread(tmp_array, n_File_ID);
+        n_Init_Size /= 4;
+        $fclose(n_File_ID);
+    end
+    $display("BaseRAM Init Size(words): %d",n_Init_Size);
+    for (integer i = 0; i < n_Init_Size; i++) begin
+        base1.mem_array0[i] = tmp_array[i][24+:8];
+        base1.mem_array1[i] = tmp_array[i][16+:8];
+        base2.mem_array0[i] = tmp_array[i][8+:8];
+        base2.mem_array1[i] = tmp_array[i][0+:8];
+    end
+end
+
+// 从文件加载 ExtRAM
+initial begin 
+    reg [31:0] tmp_array[0:1048575];
+    integer n_File_ID, n_Init_Size;
+    n_File_ID = $fopen(EXT_RAM_INIT_FILE, "rb");
+    if(!n_File_ID)begin 
+        n_Init_Size = 0;
+        $display("Failed to open ExtRAM init file");
+    end else begin
+        n_Init_Size = $fread(tmp_array, n_File_ID);
+        n_Init_Size /= 4;
+        $fclose(n_File_ID);
+    end
+    $display("ExtRAM Init Size(words): %d",n_Init_Size);
+    for (integer i = 0; i < n_Init_Size; i++) begin
+        ext1.mem_array0[i] = tmp_array[i][24+:8];
+        ext1.mem_array1[i] = tmp_array[i][16+:8];
+        ext2.mem_array0[i] = tmp_array[i][8+:8];
+        ext2.mem_array1[i] = tmp_array[i][0+:8];
+    end
+end
+endmodule
