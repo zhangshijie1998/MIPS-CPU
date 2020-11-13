@@ -41,14 +41,9 @@ wire flash_byte_n;        //Flash 8bitÄ£Ê½Ñ¡Ôñ£¬µÍÓĞĞ§¡£ÔÚÊ¹ÓÃflashµÄ16Î»Ä£Ê½Ê±Ç
 
 //WindowsĞèÒª×¢ÒâÂ·¾¶·Ö¸ô·ûµÄ×ªÒå£¬ÀıÈç"D:\\foo\\bar.bin"
  parameter BASE_RAM_INIT_FILE = "D:\\CPU\\¹Ù·½ËµÃ÷\\nscscc2020\\supervisor2_v2.01\\kernel\\kernel.bin"; 
-// parameter BASE_RAM_INIT_FILE = "D:\\vivado_workspace\\top3\\bin\\d1.bin"; 
-// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips2.bin"; 
-// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips3.bin";
-// parameter BASE_RAM_INIT_FILE = "D:\\mars\\mips4.bin"; 
-parameter EXT_RAM_INIT_FILE = "D:\\mars\\d1.bin";
 //parameter BASE_RAM_INIT_FILE = "/tmp/main.bin"; //BaseRAM³õÊ¼»¯ÎÄ¼ş£¬ÇëĞŞ¸ÄÎªÊµ¼ÊµÄ¾ø¶ÔÂ·¾¶ 
 //parameter EXT_RAM_INIT_FILE = "/tmp/eram.bin";    //ExtRAM³õÊ¼»¯ÎÄ¼ş£¬ÇëĞŞ¸ÄÎªÊµ¼ÊµÄ¾ø¶ÔÂ·¾¶
-parameter FLASH_INIT_FILE = "/tmp/kernel.elf";    //Flash³õÊ¼»¯ÎÄ¼ş£¬ÇëĞŞ¸ÄÎªÊµ¼ÊµÄ¾ø¶ÔÂ·¾¶
+
 
 //°ÑthinkpadµÄ´®¿Ú¿ØÖÆÆ÷°á¹ıÀ´£¬ĞŞ¸ÄÎª·¢ËÍÌØ¶¨Êı¾İ¡£
 //--

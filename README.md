@@ -10,3 +10,6 @@
 
 代码中包含中文注释，Vivado下可能出现乱码问题，为了保证显示正确
 Windows平台请使用GBK编码的文件，Linux平台请使用UTF-8编码的文件。  
+
+工程使用的平台更新到Vivado 2020.1
+testbench中使用的bin文件请自行更改
