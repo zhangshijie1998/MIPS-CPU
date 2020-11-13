@@ -1,5 +1,5 @@
 # MIPS-CPU
- A simple 5-pipeline CPU based on MIPS.
+ A simple 5 stage pipelined CPU based on MIPS.
 
 
 工程使用了NSCSCC2020提供的Thinpad模板工程文件。
